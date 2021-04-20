@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 from Bio.PDB import PDBList, PDBParser
 
+
 """
 atom_label_to_num = {}
 
@@ -84,24 +85,46 @@ def batch_transform_pdb_to_numpy(pdb_file_list: Union[str, list], out_dir, cente
 
 def reproduce_preprocessing():
     data_dir = '../data/'
+    
     input_dir = os.path.join(data_dir, 'input')
+    if not os.path.exists(input_dir):
+        os.mkdir(input_dir)
+
     output_dir = os.path.join(data_dir, 'output')
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
 
     pdb_files_dir = os.path.join(input_dir, 'pdb_files')
+    if not os.path.exists(pdb_files_dir):
+        os.mkdir(pdb_files_dir)
+
     raw_pdb_arrays_dir = os.path.join(input_dir, 'raw_pdb_arrays')
+    if not os.path.exists(raw_pdb_arrays_dir):
+        os.mkdir(raw_pdb_arrays_dir)
 
     train_files_dir = os.path.join(pdb_files_dir, 'train')
+    if not os.path.exists(train_files_dir):
+        os.mkdir(train_files_dir)
+
     test_files_dir = os.path.join(pdb_files_dir, 'test')
+    if not os.path.exists(test_files_dir):
+        os.mkdir(test_files_dir)
 
     train_raw_pdb_arrays_dir = os.path.join(raw_pdb_arrays_dir, 'train')
+    if not os.path.exists(train_raw_pdb_arrays_dir):
+        os.mkdir(train_raw_pdb_arrays_dir)
+
     test_raw_pdb_arrays_dir = os.path.join(raw_pdb_arrays_dir, 'test')
+    if not os.path.exists(test_raw_pdb_arrays_dir):
+        os.mkdir(test_raw_pdb_arrays_dir)
     
     dirs = [data_dir, input_dir, output_dir, pdb_files_dir, raw_pdb_arrays_dir, train_files_dir,
                 test_files_dir, train_raw_pdb_arrays_dir, test_raw_pdb_arrays_dir]
-
+    """
     for d in dirs:
         if not os.path.exists:
             os.mkdir(d)
+    """
 
     train_list_file = os.path.join(input_dir, 'train.txt')
     test_list_file = os.path.join(input_dir, 'test.txt')
