@@ -20,8 +20,8 @@ import igl
 import robust_laplacian
 from torch.distributions.categorical import Categorical
 
-from . import utils
-from .utils import toNP
+import utils
+from utils import toNP
 
 
 def norm(x, highdim=False):
@@ -106,8 +106,11 @@ def neighborhood_normal(points):
 
 def vertex_normals(verts, faces, n_neighbors_cloud=30):
     verts_np = toNP(verts)
-
-    if faces.numel() == 0: # point cloud
+    if isinstance(faces, list):
+        is_cloud = faces == []
+    else:
+        is_cloud = faces.numel() == 0
+    if is_cloud: # point cloud
     
         _, neigh_inds = find_knn(verts, verts, n_neighbors_cloud, omit_diagonal=True, method='cpu_kd')
         neigh_points = verts_np[neigh_inds,:]
@@ -288,12 +291,16 @@ def compute_operators(verts, faces, k_eig, normals=None):
     dtype = verts.dtype
     V = verts.shape[0]
     print_debug = False
-    is_cloud = faces.numel() == 0
+    if isinstance(faces, list):
+        is_cloud = faces == []
+    else:
+        is_cloud = faces.numel() == 0
 
     eps = 1e-6
     
     verts_np = toNP(verts).astype(np.float64)
-    faces_np = toNP(faces)
+    if not is_cloud:
+        faces_np = toNP(faces)
     frames = build_tangent_frames(verts, faces, normals=normals)
     frames_np = toNP(frames)
 

@@ -6,6 +6,7 @@ in order to reproduce the DiffusionNet model
 import sys
 import os
 import random
+from collections import Counter
 
 import scipy
 import scipy.sparse.linalg as sla
@@ -14,11 +15,12 @@ import scipy.sparse.linalg as sla
 
 import numpy as np
 import torch
-import torch.nn as nn
+from torch import nn
+from tqdm import tqdm
 
-from . import utils
-from .utils import toNP
-from . import geometry
+import utils
+from utils import toNP
+import geometry
 
 
 class LaplacianBlock(nn.Module):
@@ -150,7 +152,7 @@ class DiffusionNetBlock(nn.Module):
             self.C_mlp += self.C_inout
 
         # MLPs
-        self.mlp0 = MiniMLP([self.C_mlp] + self.C_hidden + [self.C_inout], dropout=self.dropout)
+        self.mlp0 = MiniMLP([self.C_mlp] + list(self.C_hidden) + [self.C_inout], dropout=self.dropout)
 
 
     def forward(self, x0, mass, evals, evecs, grad_from_spectral):
@@ -196,7 +198,7 @@ class DiffusionNetBody(nn.Module):
         super(DiffusionNetBody, self).__init__()
         
         if isinstance(width, int):
-            width_2d = (width, width)
+            width_2d = [width, width]
         
         self.input_linear_layer = nn.Linear(input_size, width)
         self.blocks = []
@@ -205,12 +207,113 @@ class DiffusionNetBody(nn.Module):
             self.blocks.append(DiffusionNetBlock(C_inout=width, C_hidden=width_2d))
             self.add_module('block_' + str(i), self.blocks[-1])
 
-    def forward(self, verts, faces, frames, mass, evals, evecs, grad_from_spectral):
+    # == we will only be using point clouds in this application
+    def forward(self, verts, mass, evals, evecs, grad_from_spectral):
         x0 = geometry.normalize_positions(verts)
         x0 = self.input_linear_layer(x0)
 
-        for b in self.blocks:
+        for _, b in tqdm(enumerate(self.blocks)):
             x0 = b(x0, mass, evals, evecs, grad_from_spectral)
 
         return x0
 
+
+class DiffusionNetBindingSite(nn.Module):
+    def __init__(self, input_size, dropout=False, pairwise_dot=True, dot_linear_complex=True, num_blocks=4, width=32, num_eigenvecs=128):
+        super(DiffusionNetBindingSite, self).__init__()
+
+        self.num_eigenvecs = num_eigenvecs
+        self.encoder = DiffusionNetBody(input_size=input_size, dropout=dropout, pairwise_dot=pairwise_dot,
+                                        dot_linear_complex=dot_linear_complex, num_blocks=num_blocks, width=width)
+        self.fc1 = nn.Linear(width, 5)
+        self.fc2 = nn.Linear(5, 4)
+        self.fc3 = nn.Linear(4, 2)
+        self.sigmoid = nn.Sigmoid()
+
+        self.blocks = [self.fc1, self.fc2, self.fc3, self.sigmoid]
+
+    def forward(self, protein_point_cloud):
+        if isinstance(protein_point_cloud, np.ndarray):
+            verts = torch.from_numpy(protein_point_cloud)
+        else:
+            verts = protein_point_cloud
+
+        # data := (frames, massvec, evals, evecs, grad_from_spectral)
+        data = geometry.compute_operators(verts=verts, faces=[], k_eig=self.num_eigenvecs)
+
+        x0 = self.encoder(verts, *data[1:])
+        for b in self.blocks:
+            x0 = b(x0)
+        
+        return x0
+
+
+class DiffusionNetPPI(nn.Module):
+    def __init__(self, p1, p2, input_size, dropout=False, pairwise_dot=True, dot_linear_complex=True, num_blocks=4, width=32):
+        super(DiffusionNetPPI, self).__init__()
+        
+        self.encoder1 = DiffusionNetBody(input_size=input_size, dropout=dropout, pairwise_dot=pairwise_dot,
+                                        dot_linear_complex=dot_linear_complex, num_blocks=num_blocks, width=width)
+        self.encoder2 = DiffusionNetBody(input_size=input_size, dropout=dropout, pairwise_dot=pairwise_dot,
+                                        dot_linear_complex=dot_linear_complex, num_blocks=num_blocks, width=width)
+
+        self.fc1 = nn.Linear(1024, 16)
+        self.fc2 = nn.Linear(16, 4)
+        self.fc3 = nn.Linear(4, 2)
+
+    def forward(self, p1, p2, num_eigenvecs=128):
+        # encode surfaces using separate DiffusionNet bodies
+        if isinstance(p1, np.ndarray):
+            verts1 = torch.from_numpy(p1)
+        else:
+            verts1 = p1
+        
+        if isinstance(p2, np.ndarray):
+            verts2 = torch.from_numpy(p2)
+        else:
+            verts2 = p2
+
+        data1 = geometry.compute_operators(verts=verts1, faces=[], k_eig=num_eigenvecs)
+        data2 = geometry.compute_operators(verts=verts2, faces=[], k_eig=num_eigenvecs)
+
+        # encode each point cloud with separate DiffusionNetBody encoders
+        x1 = self.encoder1(*data1)
+        x2 = self.encoder2(*data2)
+        
+        # TODO: sampling from encoded proteins ==> ??? ==> covariance matrix ==> flatten =: x0
+        # need to figure out how best to sample (learnable? random seems out of place here... not sure.)
+        
+        ## placeholder ##
+        x0 = np.random.rand()
+        x0 = torch.from_numpy(x0)
+        ## / placeholder ##
+
+        x0 = self.fc1(x0)
+        print(x0)
+        x0 = self.fc2(x0)
+        print(x0)
+        x0 = self.fc3(x0)
+        print(x0)
+        return x0
+
+
+def _do_sanity_check():
+    net = DiffusionNetBindingSite(input_size=3)
+    verts = torch.from_numpy(np.load('../data/input/raw_pdb_arrays/train/pdb1a0g_atomxyz.npy'))
+    #frames, massvec, evals, evecs, grad_from_spectral = geometry.compute_operators(verts=verts, faces=[], k_eig=64)
+    #x = net(verts, massvec, evals, evecs,grad_from_spectral)
+    x = net(verts)
+    print(x)
+
+"""
+notes to self:
+
+    +   change dataset to take as input not just xyz coordinate features, but one-hot encoded atomtypes.
+        looks like wee will need to change structure of forward passes in the blocks, since they rely on coordinates
+        (e.g. `verts` is shape = Nx3)
+    
+    +   ppi: figure out how to go from encoded point cloud to single feature vector in a spatially meaningful way
+
+    +   some parts of geometry.py need to be modified to be compatible with point clouds – faces as list type is not
+        compatible with `numel()`, `compute_operators()` can't be called on empty faces collection
+"""
