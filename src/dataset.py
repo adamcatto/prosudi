@@ -91,3 +91,6 @@ class ProteinPointCloudDataset(InMemoryDataset):
 def reproduce_dataset():
     protein_point_clouds = ProteinPointCloudDataset(root='../data')
     return protein_point_clouds
+
+
+reproduce_dataset()
