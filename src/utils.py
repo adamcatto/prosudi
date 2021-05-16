@@ -114,3 +114,12 @@ def read_mesh(f):
 def ensure_dir_exists(d):
     if not os.path.exists(d):
         os.makedirs(d)
+
+
+def list_all_files_in_dir(input_dir, file_types=[]):
+	if file_types:
+		result = [os.path.join(dp, f) for dp, dn, filenames in os.walk(input_dir) for f in filenames if os.path.splitext(f)[1] in file_types]
+	else:
+		result = [os.path.join(dp, f) for dp, dn, filenames in os.walk(input_dir) for f in filenames]
+
+	return result

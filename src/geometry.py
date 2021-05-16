@@ -275,7 +275,7 @@ def compute_operators(verts, faces, k_eig, normals=None):
     Builds spectral operators for a mesh/point cloud. Constructs mass matrix, eigenvalues/vectors for Laplacian, along with gradient from spcetral domain.
     Torch in / torch out.
     Arguments:
-      - vertices: (V,3) vertex positions
+      - verts: (V,3) vertex positions
       - faces: (F,3) list of triangular faces. If empty, assumed to be a point cloud.
       - k_eig: number of eigenvectors to use
     Returns:
@@ -303,6 +303,10 @@ def compute_operators(verts, faces, k_eig, normals=None):
         faces_np = toNP(faces)
     frames = build_tangent_frames(verts, faces, normals=normals)
     frames_np = toNP(frames)
+
+    # if vertices contain non-coordinate information, extract only the coordinate information – first three columns
+    if verts.shape[1] > 3:
+        verts = verts[:, 0:3]
 
     # Build the scalar Laplacian
     if is_cloud:
@@ -375,8 +379,16 @@ def get_operators(opts, verts, faces, k_eig, normals=None, overwrite_cache=False
     device = verts.device
     dtype = verts.dtype
     verts_np = toNP(verts)
-    faces_np = toNP(faces)
-    is_cloud = faces.numel() == 0
+    if isinstance(faces, list):
+        is_cloud = faces == []
+    else:
+        is_cloud = faces.numel() == 0
+    if not is_cloud:
+        faces_np = toNP(faces)
+
+    # if vertices contain non-coordinate information, extract only the coordinate information – first three columns
+    if verts.shape[1] > 3:
+        verts = verts[:, 0:3]
 
     if(np.isnan(verts_np).any()):
         raise RuntimeError("tried to construct operators from NaN verts")
