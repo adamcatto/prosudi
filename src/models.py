@@ -218,6 +218,7 @@ class DiffusionNetBody(nn.Module):
         return x0
 
 
+"""
 class DiffusionNetBindingSite(nn.Module):
     def __init__(self, input_size, dropout=False, pairwise_dot=True, dot_linear_complex=True, num_blocks=4, width=32, num_eigenvecs=128):
         super(DiffusionNetBindingSite, self).__init__()
@@ -246,6 +247,69 @@ class DiffusionNetBindingSite(nn.Module):
             x0 = b(x0)
         
         return x0
+"""
+
+
+class DiffusionNetBindingSite(nn.Module):
+    def __init__(self, input_size, dropout=False, pairwise_dot=True, dot_linear_complex=True, num_blocks=4, width=32, 
+                num_protein_eigenvecs=128, num_ligand_eigenvecs=32):
+        super(DiffusionNetBindingSite, self).__init__()
+
+        self.num_protein_eigenvecs = num_protein_eigenvecs
+        self.num_ligand_eigenvecs = num_ligand_eigenvecs
+
+        self.encoder_protein = DiffusionNetBody(input_size=input_size, dropout=dropout, pairwise_dot=pairwise_dot,
+                                        dot_linear_complex=dot_linear_complex, num_blocks=num_blocks, width=width)
+        self.encoder_ligand = DiffusionNetBody(input_size=input_size, dropout=dropout, pairwise_dot=pairwise_dot,
+                                        dot_linear_complex=dot_linear_complex, num_blocks=num_blocks, width=width)
+        self.ligand_linear_layer = nn.Linear(width, 1)
+        self.ligand_conv_layer = nn.Conv1d(1, 32, 3, padding=2)
+
+        self.protein_fc1 = nn.Linear(width, 5)
+        self.protein_fc2 = nn.Linear(5, 4)
+        self.protein_fc3 = nn.Linear(4, 2)
+        self.protein_sigmoid = nn.Sigmoid()
+        self.protein_relu = nn.ReLU()
+
+        self.protein_blocks = [self.protein_fc1, self.protein_fc2, self.protein_fc3, self.protein_sigmoid]
+
+    def forward(self, protein_point_cloud, ligand_point_cloud):
+        num_rotations = int(np.sqrt(len(ligand_point_cloud)))
+        if isinstance(protein_point_cloud, np.ndarray):
+            protein_verts = torch.from_numpy(protein_point_cloud[:, 0:3])
+        else:
+            protein_verts = protein_point_cloud[:, 0:3]
+        
+        if isinstance(ligand_point_cloud, np.ndarray):
+            ligand_verts = torch.from_numpy(ligand_point_cloud[:, 0:3])
+        else:
+            ligand_verts = ligand_point_cloud[:, 0:3]
+
+        # data := (frames, massvec, evals, evecs, grad_from_spectral)
+        protein_data = geometry.compute_operators(verts=protein_verts, faces=[], k_eig=self.num_protein_eigenvecs)
+        ligand_data = geometry.compute_operators(verts=ligand_verts, faces=[], k_eig=self.num_ligand_eigenvecs)
+
+        # -- encoding steps
+        x0_protein = self.encoder_protein(protein_point_cloud, *protein_data[1:])
+        x0_ligand = self.encoder_ligand(ligand_point_cloud, *ligand_data[1:])
+
+        # -- transform ligand into 32-dimensional fingerprint via ligand-wide means of 1d convolutions
+        # -- this is a trick to get 32-dimensional fingerprints from different ligand sizes
+        # -- use learned convolutional filters instead of learned linear layer; former is flexible to ligand size,
+        # -- whereas latter is not
+        x0_ligand = self.ligand_linear_layer(x0_ligand).unsqueeze(1)
+        x0_ligand = self.ligand_conv_layer(x0_ligand)
+        x0_ligand = torch.mean(x0_ligand, dim=[0, 2]).unsqueeze(1)
+        # -- note: unsqueeze at dim=0 to get 1x32 tensor; then do tensor product between encoded protein...
+        # -- ... and ligand fingerprint ==> sigmoid ==> segmentation
+
+        x0_protein = torch.matmul(x0_protein, x0_ligand)
+        x0_protein = self.protein_sigmoid(x0_protein)
+
+        # for b in self.protein_blocks:
+            # x0_protein = b(x0_protein)
+        
+        return x0_protein
 
 
 class DiffusionNetPPI(nn.Module):
@@ -264,14 +328,14 @@ class DiffusionNetPPI(nn.Module):
     def forward(self, p1, p2, num_eigenvecs=128):
         # encode surfaces using separate DiffusionNet bodies
         if isinstance(p1, np.ndarray):
-            verts1 = torch.from_numpy(p1)
+            verts1 = torch.from_numpy(p1[:, 0:3])
         else:
-            verts1 = p1
+            verts1 = p1[:, 0:3]
         
         if isinstance(p2, np.ndarray):
-            verts2 = torch.from_numpy(p2)
+            verts2 = torch.from_numpy(p2[:, 0:3])
         else:
-            verts2 = p2
+            verts2 = p2[:, 0:3]
 
         data1 = geometry.compute_operators(verts=verts1, faces=[], k_eig=num_eigenvecs)
         data2 = geometry.compute_operators(verts=verts2, faces=[], k_eig=num_eigenvecs)
@@ -298,12 +362,20 @@ class DiffusionNetPPI(nn.Module):
 
 
 def _do_sanity_check():
-    net = DiffusionNetBindingSite(input_size=3)
-    verts = torch.from_numpy(np.load('../data/input/raw_pdb_arrays/train/pdb1a0g_atomxyz.npy'))
+    net = DiffusionNetBindingSite(input_size=23)
+    protein = torch.from_numpy(np.load('../data/input/scpdb/raw_pdb_arrays/train/1a2b_1/protein_combined.npy')).float()
+    ligand = torch.from_numpy(np.load('../data/input/scpdb/raw_pdb_arrays/train/1a2b_1/ligand_combined.npy')).float()
+
+    # protein_verts = protein[:, 0:3]
+    # ligand_verts = ligand[:, 0:3]
     #frames, massvec, evals, evecs, grad_from_spectral = geometry.compute_operators(verts=verts, faces=[], k_eig=64)
     #x = net(verts, massvec, evals, evecs,grad_from_spectral)
-    x = net(verts)
+    x = net(protein, ligand)
     print(x)
+
+
+# _do_sanity_check()
+
 
 """
 notes to self:

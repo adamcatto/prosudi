@@ -10,6 +10,7 @@ import random
 
 import scipy
 from scipy.sparse import linalg as sla
+from scipy.spatial.transform import Rotation
 # ^^^ we NEED to import scipy before torch, or it crashes :(
 # (observed on Ubuntu 20.04 w/ torch 1.6.0 and scipy 1.5.2 installed via conda)
 import sklearn.neighbors
@@ -593,3 +594,35 @@ def find_knn(points_source, points_target, k, largest=False, omit_diagonal=False
     
     else:
         raise ValueError("unrecognized method")
+
+
+tensor = torch.FloatTensor
+
+def generate_random_rotation_matrices():
+    pass
+
+
+class RandomRotationPairAtoms(object):
+    r"""Randomly rotate a protein"""
+    """
+    adapted from https://github.com/FreyrS/dMaSIF/blob/master/data.py
+    """
+
+    def __call__(self, data):
+        R1 = tensor(Rotation.random().as_matrix())
+        R2 = tensor(Rotation.random().as_matrix())
+
+        data.atom_coords_p1 = torch.matmul(R1, data.atom_coords_p1.T).T
+        data.xyz_p1 = torch.matmul(R1, data.xyz_p1.T).T
+        data.normals_p1 = torch.matmul(R1, data.normals_p1.T).T
+
+        data.atom_coords_p2 = torch.matmul(R2, data.atom_coords_p2.T).T
+        data.xyz_p2 = torch.matmul(R2, data.xyz_p2.T).T
+        data.normals_p2 = torch.matmul(R2, data.normals_p2.T).T
+
+        data.rand_rot1 = R1
+        data.rand_rot2 = R2
+        return data
+
+    def __repr__(self):
+        return "{}()".format(self.__class__.__name__)
